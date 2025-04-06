@@ -1,51 +1,81 @@
+#!/usr/bin/python3.6
+import os.path
+
 from argparse import ArgumentParser
-from enum import Enum
+from datetime import date
 
 import ROOT
 from ROOT import TFile, TTree
 
-from Container import Container
-from CMD3ContainerV9 import CMD3ContainerV9
-from PreliminaryContainer import PreliminaryContainer
-
 from PreliminaryAnalysis import PreliminaryAnalysis
 
-
 if __name__ == '__main__':
-    ##CMD3 --> Preliminary
-    ##Path to datafiles
-    path_cmd3data = "root://cmd//scan2020/scan2020_tr_ph_fc_e950_v9.root"
-    path_prelim = "/store11/idpershin/prelim/scan2020_tr_ph_fc_e950_v9.root"
+    ##Parsing input arguments
+    parser = ArgumentParser()
+    parser.add_argument('--version', default = 'v9', choices = ['v9'], help = 'Version of CMD-3 data tree')
+    parser.add_argument('--year', choices = ['2019', '2020', '2021', '2022', '2023'])
+    parser.add_argument('--energy')
+    parser.add_argument('--target-dir')
+    parser.add_argument('--input-file')
+    args = parser.parse_args()
+    if not os.path.exists(args.target_dir): raise OSError(f"Target directory not existing: {args.target_dir}")
+    if not os.path.exists(args.input_file): raise OSError(f"Input file not existing: {args.input_file}")
 
-    ##Path to histograms
-    path_hists = "/store11/idpershin/prelim/hists2020_tr_ph_fc_e950_v9.root"
+    ## CMD3 --> Preliminary
+    ## Path to datafiles
+    path_cmd3data = args.input_file
+    path_prelim = os.path.normpath(f"{args.target_dir}/cut{args.year}_tr_ph_fc_e{args.energy}_{args.version}.root")
 
-    prelim_analysis = PreliminaryAnalysis(path_hists, path_cmd3data, path_prelim)
-    prelim_analysis.cut('nt')
-    prelim_analysis.cut('tcharge')
-    prelim_analysis.createHistogram('h_tptot', 'tcharge')
-    prelim_analysis.createHistogram('h_tnhit', 'tcharge')
-    prelim_analysis.createHistogram('h_tth', 'tcharge')
-    prelim_analysis.createHistogram('h_tphi', 'tcharge')
-    prelim_analysis.createHistogram('h_tptot_tdedx', 'tcharge')
-    prelim_analysis.cut('tptot')
-    prelim_analysis.createHistogram('h_tnhit', 'tptot')
-    prelim_analysis.createHistogram('h_tth', 'tptot')
-    prelim_analysis.createHistogram('h_tphi', 'tptot')
-    prelim_analysis.createHistogram('h_tptot_tdedx', 'tptot')
-    prelim_analysis.cut('tnhit')
-    prelim_analysis.createHistogram('h_tth', 'tnhit')
-    prelim_analysis.createHistogram('h_tphi', 'tnhit')
-    prelim_analysis.createHistogram('h_tptot_tdedx', 'tnhit')
-    prelim_analysis.cut('tth')
-    prelim_analysis.createHistogram('h_tphi', 'tth')
-    prelim_analysis.createHistogram('h_tptot_tdedx', 'tth')
-    prelim_analysis.createHistogram('h_TotalP_DeltaE', 'tth')
-    prelim_analysis.cut('trho')
-    prelim_analysis.cut('tz')
-    prelim_analysis.cut('DeltaE')
-    prelim_analysis.cut('TotalP')
-    prelim_analysis.createHistogram('h_TotalP_DeltaE', 'TotalP')
-    prelim_analysis.dumpToFile()
+    ## Path to histograms
+    path_hists = os.path.normpath(f"{args.target_dir}/hists{args.year}_tr_ph_fc_e{args.energy}_{args.version}.root")
+    ## Path to log
+    path_log = os.path.normpath(f"{args.target_dir}/preliminary_cut_{args.year}_e{args.energy}_{args.version}_{date.today().strftime('%d-%m-%Y')}.log")
 
+    prelim_analysis = PreliminaryAnalysis(path_hists, path_cmd3data, path_prelim, path_log)
+    prelim_analysis.addCut('nt')
+    prelim_analysis.addCut('tcharge')
+    prelim_analysis.addHistogram('h_tptot')
+    prelim_analysis.addHistogram('h_tnhit')
+    prelim_analysis.addHistogram('h_tth')
+    prelim_analysis.addHistogram('h_tphi')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.loop()
+
+    prelim_analysis.addCut('trho')
+    prelim_analysis.addCut('tz')
+    prelim_analysis.addCut('tptot')
+    prelim_analysis.addHistogram('h_tnhit')
+    prelim_analysis.addHistogram('h_tth')
+    prelim_analysis.addHistogram('h_tphi')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.loop()
     
+    prelim_analysis.addCut('tnhit')
+    prelim_analysis.addHistogram('h_tth')
+    prelim_analysis.addHistogram('h_tphi')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.loop()
+    
+    prelim_analysis.addCut('tth')
+    prelim_analysis.addHistogram('h_tth')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.addHistogram('h_TotalP_DeltaE')
+    prelim_analysis.loop()
+
+    prelim_analysis.addCut('nph')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.addHistogram('h_TotalP_DeltaE')
+    prelim_analysis.loop()
+    
+    prelim_analysis.addCut('KpKmPipPimLklhd')
+    prelim_analysis.addHistogram('h_tptot_tdedx')
+    prelim_analysis.addHistogram('h_KpKmPipPimLklhd')
+    prelim_analysis.addHistogram('h_TotalP_DeltaE')
+    prelim_analysis.loop()
+    
+    prelim_analysis.dumpToFile()
