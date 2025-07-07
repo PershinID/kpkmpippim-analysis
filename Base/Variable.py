@@ -8,7 +8,7 @@ import random
 
 from ROOT import TLorentzVector
 
-from PhysicalConstants import m_pi
+from .PhysicalConstants import m_pi
 
 def prod(iterable, *, start = 1):
     return reduce(mul, iterable, start)

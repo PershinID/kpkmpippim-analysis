@@ -1,4 +1,4 @@
-from Container import Container
+from Base.Container import Container
 
 class CMD3ContainerV9(Container):
     def __init__(self, path: str, variables):
@@ -65,5 +65,21 @@ class CMD3ContainerV9(Container):
             "tlxesen",
             "tlxesen_layers",
             "finalstate_id",
+            "nph_total",
+            "phen",
+            "phth",
+            "phphi",
+            "phrho",
+            "phen0",
+            "phth0",
+            "phphi0",
+            "phlxe",
+            "phslxe_layers",
+            "pherr",
+            "phcsi",
+            "phbgo",
+            "phflag",
+            "phconv",
+            "phfc",
         ]
         Container.__init__(self, path, "read", {branch: variables[branch] for branch in branches})

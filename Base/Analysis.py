@@ -1,5 +1,6 @@
 from enum import Enum
 from copy import copy
+from collections import OrderedDict
 
 from math import pi, ceil, floor
 from functools import reduce
@@ -14,7 +15,7 @@ from ROOT import TFile
 from ROOT import TH1I, TH1F, TH2F, TGraph, TCanvas
 from ROOT import gROOT
 
-from Container import Container
+from .Container import Container
 
 EHists = Enum('EHists', ['TH1I', 'TH1F', 'TH2F'])
 
@@ -23,12 +24,13 @@ class CutDispatcher:
         self.CutsAvailable = cuts_available
 
         ## Current progress
-        self.CutsCurrent = []
+        self.CutsCurrent = {}
         self.Checklist = self.createChecklist(n_entries_full)
 
         ## Progress done
         self.CutsCounter = 0
-        self.CutsDone = {'no_cut': n_entries_full} ## {name: n_entries_selected}
+        self.CutsDone = OrderedDict()
+        self.CutsDone.update({'no_cut': n_entries_full}) ## {name: n_entries_selected}
         self.GraphEntriesSelected = None
         self.GraphEntriesPercentage = None
         self.GraphCutPercentage = None
@@ -42,19 +44,33 @@ class CutDispatcher:
     def isCutCurrent(self, cut_name):
         return cut_name in self.CutsCurrent
 
+    def isCutInversed(self, cut_name):
+        return cut_name[0] == '!'
+    
     def addCut(self, cut_name, is_inversed = False):
         if not self.isCutAvailable(cut_name): raise ValueError(f"Cut blueprint not found: {cut_name}")
         if self.isCutCurrent(cut_name): return
         if self.isCutDone(cut_name): return
-        self.CutsCurrent.append(cut_name)
+        cut_name_ = cut_name if not is_inversed else '!' + cut_name
+        self.CutsCurrent.update({cut_name_: self.CutsAvailable[cut_name]})
 
+    def addCutNew(self, cut_name, cut_func, is_inversed = False):
+        if self.isCutAvailable(cut_name): raise ValueError(f"Cut blueprint already exists: {cut_name}")
+        if self.isCutCurrent(cut_name): return
+        if self.isCutDone(cut_name): return
+        cut_name_ = cut_name if not is_inversed else '!' + cut_name
+        self.CutsCurrent.update({cut_name_: cut_func})         
+
+    def getCutsCurrent(self):
+        return self.CutsCurrent
+        
     ## Operations with checklist
     def createChecklist(self, n_entries_full):
         checklist = bytearray(b'\xff' * (n_entries_full // 8))
         if n_entries_full % 8 != 0:
             checklist += ( (1 << 8) - (1 << (8 - n_entries_full % 8)) ).to_bytes(1, 'big')
         return checklist
-        
+    
     def deleteEntryFromChecklist(self, n_entry):
         byte_index, bit_index = (n_entry // 8), 0b10000000 >> (n_entry % 8)
         self.Checklist[byte_index] &= (0b11111111 - bit_index)
@@ -72,6 +88,11 @@ class CutDispatcher:
     ## Operations with done cuts
     def isCutDone(self, cut_name):
         return cut_name in self.CutsDone
+
+    def update(self):
+        self.CutsDone.update({self.formFullCutName(): self.getEntriesSelected()})
+        self.CutsCounter += 1
+        self.CutsCurrent = {}
     
     def buildGraphs(self):
         n_entries_full = self.CutsDone['no_cut']
@@ -96,14 +117,23 @@ class CutDispatcher:
         for i, cut_item in enumerate(self.CutsDone.items()):
             self.GraphEntriesSelected.SetPoint(i, i, cut_item[1])
             self.GraphEntriesPercentage.SetPoint(i, i, cut_item[1] / n_entries_full)
-            self.GraphCutPercentage.SetPoint(i, i, cut_item[1] / n_entries_prev)
+            self.GraphCutPercentage.SetPoint(i, i, cut_item[1] / n_entries_prev if n_entries_prev != 0 else 0.)
             n_entries_prev = cut_item[1]
 
+
+    def formDirectoryName(self):
+        if not self.CutsCurrent: return str(self.CutsCounter)
+        return str(self.CutsCounter) + '_' + '_'.join(self.CutsCurrent)
+
+    def formFullCutName(self):
+        if not self.CutsCurrent: return 'no_cut'
+        return '_'.join(self.CutsCurrent)
+        
 
 class HistogramDispatcher:
     def __init__(self, histograms_available):
         self.HistogramsAvailable = histograms_available
-        self.HistogramsCurrent = []
+        self.HistogramsCurrent = {}
         self.HistogramsBuilt = {}
 
     def isHistogramAvailable(self, hist_name):
@@ -115,12 +145,14 @@ class HistogramDispatcher:
     def addHistogram(self, hist_name):
         if not self.isHistogramAvailable(hist_name): raise ValueError(f"Histogram blueprint not found: {hist_name}")
         if self.isHistogramCurrent(hist_name): return
-        self.HistogramsCurrent.append(hist_name)
-
+        self.buildHistogram(hist_name)
+        
     def buildHistogram(self, hist_name):
         if hist_name in self.HistogramsBuilt:
             self.HistogramsBuilt[hist_name][0].Reset()
-            return self.HistogramsBuilt[hist_name]
+            self.HistogramsCurrent[hist_name] = self.HistogramsBuilt[hist_name]
+            return
+        
         hist_blueprint = self.HistogramsAvailable[hist_name]
         hist_args = hist_blueprint['args']
             
@@ -133,7 +165,6 @@ class HistogramDispatcher:
                 ),
                 hist_args['x-variable'],
             )
-            return self.HistogramsBuilt[hist_name]
 
         if hist_blueprint['type'] is EHists.TH1F:
             self.HistogramsBuilt[hist_name] = (
@@ -144,7 +175,6 @@ class HistogramDispatcher:
                 ),
                 hist_args['x-variable'],
             )
-            return self.HistogramsBuilt[hist_name]
 
         if hist_blueprint['type'] is EHists.TH2F:
             self.HistogramsBuilt[hist_name] = (
@@ -156,27 +186,37 @@ class HistogramDispatcher:
                 ),
                 hist_args['x-variable'], hist_args['y-variable'],
             )
-            return self.HistogramsBuilt[hist_name]
 
+        self.HistogramsCurrent[hist_name] = self.HistogramsBuilt[hist_name]
+
+
+    def getHistogramsCurrent(self):
+        return self.HistogramsCurrent
+        
+    def getHistogramsCurrentList(self):
+        return self.HistogramsCurrent.keys()
+
+    def clearHistogramsCurrent(self):
+        self.HistogramsCurrent = {}
+    
 
 class Analysis:
-    def __init__(self, path, mode = 'recreate', *, logname = "analysis", logpath = None, filemode = 'w'):
-        self.InputContainer = None
-        self.OutputContainer = None
-        self.isOutputDumped = False
-        self.AnalysisFile = TFile.Open(path, mode)
+    def __init__(self, path = None, *, logname = "analysis", logpath = None, logmode = 'w'):
+        self.InputContainers = []
+        self.OutputContainers = []
+        self.AnalysisFile = TFile.Open(path, 'recreate') if path else None
         self.Variables = {}
 
         self.Logger = getLogger(logname)
         self.Logger.setLevel(logging.INFO)
-        log_handler = StreamHandler(sys.stdout) if logpath == None else FileHandler(logpath, filemode)
-        log_handler.setFormatter(
+        self.LogHandler = StreamHandler(sys.stdout) if logpath == None else FileHandler(logpath, logmode)
+        self.LogHandler.setFormatter(
             Formatter(
                 fmt = "%(asctime)s: %(name)s: %(message)s",
                 datefmt = "%d.%m.%Y %H:%M:%S"
             )
         )
-        self.Logger.addHandler(log_handler)
+        self.Logger.addHandler(self.LogHandler)
         
         self.CutDispatcher = None
         self.HistogramDispatcher = None
@@ -186,50 +226,68 @@ class Analysis:
     def addCut(self, cut_name, is_inversed = False):
         self.CutDispatcher.addCut(cut_name, is_inversed)
 
-    def getCutsCurrent(self):
-        return self.CutDispatcher.CutsCurrent
-
+    def addCutNew(self, cut_name, cut_func, is_inversed = False):
+        self.CutDispatcher.addCutNew(cut_name, cut_func, is_inversed)
+        
     ## Operations with histograms
     def addHistogram(self, hist_name):
+        if not self.AnalysisFile: return
         self.HistogramDispatcher.addHistogram(hist_name)
 
     def getHistogramsCurrent(self):
-        return self.HistogramDispatcher.HistogramsCurrent
+        if not self.AnalysisFile: return {}
+        return self.HistogramDispatcher.getHistogramsCurrent()
+        
+    def getHistogramsCurrentList(self):
+        if not self.AnalysisFile: return []
+        return self.HistogramDispatcher.getHistogramsCurrentList()
 
+    def saveHistograms(self, hists, directory_name):
+        if not self.AnalysisFile: return
+        if not self.AnalysisFile.GetDirectory(directory_name):
+            self.AnalysisFile.mkdir(directory_name)
+        self.AnalysisFile.GetDirectory(directory_name).cd()
+        for hist in hists.values(): hist[0].Write()
+        self.AnalysisFile.Save()
+        self.AnalysisFile.cd()
+
+    def clearHistogramsCurrent(self):
+        if not self.AnalysisFile: return
+        return self.HistogramDispatcher.clearHistogramsCurrent()
+        
     ## Operations with entries
     def getEntry(self, n_entry):
-        self.InputContainer.getEntry(n_entry)
+        for container in self.InputContainers:
+            container.getEntry(n_entry)
 
+    def getEntries(self):
+        return self.InputContainers[0].getEntries()
+            
     def fillEntry(self):
-        self.OutputContainer.fillEntry()
+        for container in self.OutputContainers:
+            container.fillEntry()
 
     def calculateEntry(self):
         pass
 
     ## Processing loop
     def loop(self, *, directory_name = None):
-        if directory_name is None:
-            directory_name = str(self.CutDispatcher.CutsCounter) + '_' + '_'.join(self.CutDispatcher.CutsCurrent)
-        if directory_name == '':
-            raise ValueError('Directory not chosen')
+        if not directory_name:
+            directory_name = self.CutDispatcher.formDirectoryName() 
 
-        hists = {}
-        for hist_name in self.HistogramDispatcher.HistogramsCurrent:
-            hists.update({
-                hist_name: self.HistogramDispatcher.buildHistogram(hist_name)
-            })
+        ## hists: {'hist_name': (THist, Variable1, Variable2, ...), ...}
+        hists = self.getHistogramsCurrent()
         
-        cut_set_name = '_'.join(self.CutDispatcher.CutsCurrent)
+        cut_set_name = self.CutDispatcher.formFullCutName()
         self.Logger.info(f"Starting '{cut_set_name}' cut")
         n_entries_prev = self.CutDispatcher.getEntriesSelected()
-        for n_entry in range(self.InputContainer.getEntries()):
+        for n_entry in range(self.getEntries()):
             if not self.CutDispatcher.checkEntryInChecklist(n_entry): continue
             self.getEntry(n_entry)
 
             ## Executing cuts
-            for cut_name in self.CutDispatcher.CutsCurrent:
-                cut_func = self.CutDispatcher.CutsAvailable[cut_name]
-                is_inversed = True if cut_name[0] == '!' else False
+            for cut_name, cut_func in self.CutDispatcher.getCutsCurrent().items():
+                is_inversed = self.CutDispatcher.isCutInversed(cut_name)
                 if not is_inversed and cut_func():
                     self.CutDispatcher.deleteEntryFromChecklist(n_entry)
                     break
@@ -251,46 +309,49 @@ class Analysis:
 
         ## Logging cut results, clearing CutsCurrent and HistogramsCurrent
         self.Logger.info(f"'{cut_set_name}' cut finished. {self.CutDispatcher.getEntriesSelected()} entries out of {n_entries_prev} selected")
-        self.CutDispatcher.CutsDone.update({cut_set_name: self.CutDispatcher.getEntriesSelected()})
-        self.CutDispatcher.CutsCurrent.clear()
-        self.HistogramDispatcher.HistogramsCurrent.clear()
-        self.CutDispatcher.CutsCounter += 1
+        self.CutDispatcher.update()
+        self.clearHistogramsCurrent()
 
         ## Saving histograms to directory
-        self.AnalysisFile.mkdir(directory_name)
-        self.AnalysisFile.GetDirectory(directory_name).cd()
-        for hist in hists.values(): hist[0].Write()
-        self.AnalysisFile.Save()
-        self.AnalysisFile.cd()
+        self.saveHistograms(hists, directory_name)
         
         
     def dumpToFile(self):
-        if self.isOutputDumped: return
+        if self.AnalysisFile:
+            self.AnalysisFile.cd()
+            self.CutDispatcher.buildGraphs()
+            self.CutDispatcher.GraphEntriesSelected.Write()
+            self.CutDispatcher.GraphEntriesPercentage.Write()
+            self.CutDispatcher.GraphCutPercentage.Write()
+            self.AnalysisFile.Save()
 
-        self.AnalysisFile.cd()
-        self.CutDispatcher.buildGraphs()
-        self.CutDispatcher.GraphEntriesSelected.Write()
-        self.CutDispatcher.GraphEntriesPercentage.Write()
-        self.CutDispatcher.GraphCutPercentage.Write()
-        
-        self.AnalysisFile.Save()
-        
-        for n_entry in range(self.InputContainer.getEntries()):
-            if not self.CutDispatcher.checkEntryInChecklist(n_entry): continue
+        if self.OutputContainers:
+            for n_entry in range(self.getEntries()):
+                if not self.CutDispatcher.checkEntryInChecklist(n_entry): continue
+                
+                self.getEntry(n_entry)
+                self.calculateEntry()
+                self.fillEntry()
 
-            self.getEntry(n_entry)
-            self.calculateEntry()
-            self.fillEntry()
-        self.OutputContainer.dumpToFile()
-        self.isOutputDumped = True
+            for container in self.OutputContainers:
+                container.dumpToFile()
+
+                
+    def close(self):
+        if self.AnalysisFile:
+            self.AnalysisFile.Close()
+            del self.HistogramDispatcher
+        for container in self.InputContainers: container.close()
+        for container in self.OutputContainers: container.close()
+        del self.CutDispatcher
+        self.Logger.removeHandler(self.LogHandler)
+        self.LogHandler.close()
+        del self.Logger
 
 
 if __name__ == '__main__':
-    cut_dispatcher = CutDispatcher('test', {}, n_entries_full = 128)
-    print(cut_dispatcher.Checklist)
-    print(cut_dispatcher.getEntriesSelected())
-    cut_dispatcher.deleteEntryFromChecklist(5)
-    cut_dispatcher.deleteEntryFromChecklist(10)
-    cut_dispatcher.deleteEntryFromChecklist(15)
-    print(cut_dispatcher.Checklist)
-    print(cut_dispatcher.getEntriesSelected())
+    analysis = Analysis('test.root')
+    analysis.close()
+
+    analysis = Analysis()
+    analysis.close()

@@ -1,6 +1,6 @@
-from Container import Container
+from Base.Container import Container
 
-class PreliminaryContainer(Container):
+class FinalContainer(Container):
     def __init__(self, path: str, mode: str, variables):
         branches = [
             "nt",
@@ -66,7 +66,6 @@ class PreliminaryContainer(Container):
             "tlxesen_layers",
             "finalstate_id",
 
-            ## User branches
             "DeltaE",
             "TotalP",
             "KpKmPipPimLklhd",
@@ -74,5 +73,17 @@ class PreliminaryContainer(Container):
             "KmTrackIndex",
             "PipTrackIndex",
             "PimTrackIndex",
+            "KpKmPipPimKinfitChi2",
+            "KpKmPipPimKinfitKpTrack",
+            "KpKmPipPimKinfitKmTrack",
+            "KpKmPipPimKinfitPipTrack",
+            "KpKmPipPimKinfitPimTrack",
+            "PipPimPipPimKinfitChi2",
+            "PipPimPipPimKinfitPip0Track",
+            "PipPimPipPimKinfitPim0Track",
+            "PipPimPipPimKinfitPip1Track",
+            "PipPimPipPimKinfitPim1Track",
+            
+            "PipPimPipPimMissMass",
         ]
-        Container.__init__(self, path, mode, {branch: variables[branch] for branch in branches})
+        Container.__init__(self, path, mode, {branch: variables[branch] for branch in set(branches) & set(variables)})

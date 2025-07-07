@@ -3,7 +3,7 @@ from typing import Tuple
 
 from ROOT import TFile, TTree
 
-from Variable import Variable
+from .Variable import Variable
 
 def prod(iterable, *, start = 1):
     if len(iterable) == 0: return start
@@ -87,3 +87,7 @@ class Container:
             self.Tree.Write()
             self.ContainerFile.Save()
             return self.Tree
+
+    def close(self):
+        if self.Mode in ("new", "recreate"): del self.Tree
+        self.ContainerFile.Close()
